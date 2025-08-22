@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VibePrompt Studio (Local Prototype)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #151924;
+    --text: #e8eaf0;
+    --muted: #aab2c0;
+    --brand: #3aa2ff;
+    --accent: #00d4a7;
+    --warn: #ffcc00;
+    --danger: #ff5d5d;
+    --border: #2a3142;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", Meiryo, "Noto Sans JP", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: #0c0f16; position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button, select, input[type="number"], input[type="checkbox"], label.switch {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 10px; font-size: 12px; cursor: pointer; outline: none;
+  }
+  select, input[type="number"] { cursor: default; }
+  button.primary { background: linear-gradient(180deg, #288cff, #1673ff); border: none; }
+  button.ghost { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sep { width: 1px; height: 28px; background: var(--border); margin: 0 4px; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; }
+  .pill { padding: 4px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--muted); }
+
+  /* Layout */
+  #container { height: calc(100dvh - 60px); display: flex; }
+  .pane { height: 100%; overflow: hidden; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+  .pane > .titlebar { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .pane > .titlebar h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .3px; }
+  .pane > .content { flex: 1; overflow: auto; padding: 0; }
+
+  /* Editor & Preview */
+  #editor { height: 100%; }
+  #preview { padding: 16px 20px; line-height: 1.6; }
+  #preview h1, #preview h2, #preview h3 { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  #preview pre { background: #0b0e14; border: 1px solid var(--border); padding: 12px; border-radius: 8px; overflow: auto; }
+  #preview code { background: #0b0e14; padding: 2px 4px; border-radius: 4px; }
+  #final { white-space: pre-wrap; padding: 16px 20px; line-height: 1.55; }
+
+  /* Token bar */
+  .meter { height: 8px; width: 100%; background: #0b0e14; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+  .meter > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--brand)); width: 0%; }
+  .stat { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+
+  /* Footer note */
+  footer { color: var(--muted); font-size: 11px; padding: 8px 12px; border-top: 1px solid var(--border); background: #0c0f16; }
+
+  /* Split.js gutters */
+  .gutter { background-color: var(--bg); background-repeat: no-repeat; background-position: 50%; }
+  .gutter.gutter-horizontal { cursor: col-resize; width: 6px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+
+  /* Small screens */
+  @media (max-width: 1024px) {
+    header { align-items: start; }
+    #container { flex-direction: column; height: auto; }
+    .gutter.gutter-horizontal { display: none; }
+    .pane { height: auto; }
+  }
+</style>
+<!-- Libraries via CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/material-darker.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/split.js@1.6.5/dist/split.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closetag.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/selection/active-line.min.js"></script>
+<!-- Tokenizer (best-effort). Falls back when unavailable. -->
+<script src="https://unpkg.com/js-tiktoken/dist/web/index.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>VibePrompt Studio <span class="sub">— Local Prototype</span></h1>
+    </div>
+    <div class="toolbar" style="margin-left:auto">
+      <label class="toggle">
+        テンプレート：
+        <select id="tplSelect" title="テンプレートを挿入">
+          <option value="none">選択してください…</option>
+          <option value="general">一般タスク</option>
+          <option value="code">コード生成（安全重視）</option>
+          <option value="summary">要約・抽出</option>
+        </select>
+      </label>
+      <button id="applyTpl">挿入</button>
+      <span class="sep"></span>
+      <button id="copyFinal" class="primary">最終プロンプトをコピー</button>
+      <button id="exportMd">保存（.md）</button>
+      <button id="exportJson">保存（.json）</button>
+      <label class="toggle"><input id="importFile" type="file" hidden accept=".md,.txt,.json"/><button id="importBtn">読み込み</button></label>
+      <button id="resetBtn" class="ghost" title="ローカル保存内容を初期化">リセット</button>
+      <span class="sep"></span>
+      <label class="toggle"><input id="wrapToggle" type="checkbox"/> Chatタグで包む</label>
+      <label class="toggle">上限（tokens）<input id="limit" type="number" min="512" step="512" value="8192" style="width:100px"/></label>
+      <span class="pill" id="status">Tokenizer: 準備中…</span>
+    </div>
+  </header>
+
+  <div id="container">
+    <div id="pane-left" class="pane">
+      <div class="titlebar"><h2>Markdown入力</h2><span class="pill">Ctrl/Cmd+S: 保存</span></div>
+      <div class="content"><textarea id="editor"></textarea></div>
+    </div>
+
+    <div id="pane-mid" class="pane">
+      <div class="titlebar"><h2>プレビュー（安全サニタイズ）</h2></div>
+      <div id="preview" class="content"></div>
+    </div>
+
+    <div id="pane-right" class="pane">
+      <div class="titlebar"><h2>最終プロンプト & トークン見積り</h2></div>
+      <div id="final" class="content"></div>
+      <div style="padding: 0 16px 12px 16px; display:flex; flex-direction:column; gap:6px;">
+        <div class="meter"><span id="meterFill"></span></div>
+        <div class="stat"><span id="tokStat">0 tokens</span><span id="pctStat">0%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    • このファイルはローカルで完結します（CDNに依存）。オフライン完全対応が必要な場合はライブラリの同梱版に差し替えてください。 • プレビューは DOMPurify 済。 • YAMLフロントマターを含むMarkdownを推奨します（テンプレを参照）。
+  </footer>
+
+<script>
+  // ------------------------------
+  // Split.js layout
+  // ------------------------------
+  Split(['#pane-left', '#pane-mid', '#pane-right'], {
+    sizes: [38, 34, 28], minSize: [240, 220, 260], gutterSize: 6
+  });
+
+  // ------------------------------
+  // CodeMirror editor setup
+  // ------------------------------
+  const cm = CodeMirror.fromTextArea(document.getElementById('editor'), {
+    mode: 'markdown', theme: 'material-darker', lineNumbers: true,
+    styleActiveLine: true, autoCloseBrackets: true, autoCloseTags: true,
+    lineWrapping: true
+  });
+
+  // Load initial content from localStorage or default template
+  const LS_KEY = 'vibeprompt_studio_v1';
+  const saved = localStorage.getItem(LS_KEY);
+  if (saved) {
+    try { cm.setValue(JSON.parse(saved).markdown || ''); } catch {}
+  } else {
+    cm.setValue(getTemplate('general'));
+  }
+
+  // ------------------------------
+  // Markdown -> HTML (marked + DOMPurify)
+  // ------------------------------
+  marked.setOptions({ breaks: true, gfm: true, mangle: false, headerIds: true });
+  const previewEl = document.getElementById('preview');
+  const finalEl = document.getElementById('final');
+  const statusEl = document.getElementById('status');
+  const meterFill = document.getElementById('meterFill');
+  const tokStat = document.getElementById('tokStat');
+  const pctStat = document.getElementById('pctStat');
+
+  function renderPreview(markdown) {
+    const dirty = marked.parse(markdown);
+    previewEl.innerHTML = DOMPurify.sanitize(dirty);
+  }
+
+  // ------------------------------
+  // YAML Front Matter support
+  // ------------------------------
+  function parseFrontmatter(md) {
+    const fm = { data: {}, body: md };
+    const m = md.match(/^---\n([\s\S]*?)\n---\n?/);
+    if (m) {
+      try { fm.data = jsyaml.load(m[1]) || {}; } catch (e) { console.warn('YAML parse error', e); }
+      fm.body = md.slice(m[0].length);
+    }
+    return fm;
+  }
+
+  function buildSystemBlock(data) {
+    const lines = [];
+    if (data.role) lines.push(`役割: ${String(data.role)}`);
+    if (data.goal) lines.push(`目的: ${String(data.goal)}`);
+    if (Array.isArray(data.constraints)) {
+      lines.push('制約:'); data.constraints.forEach((c,i)=>lines.push(`- ${c}`));
+    } else if (data.constraints) {
+      lines.push(`制約: ${data.constraints}`);
+    }
+    if (Array.isArray(data.style)) {
+      lines.push('記述スタイル:'); data.style.forEach(s=>lines.push(`- ${s}`));
+    } else if (data.style) {
+      lines.push(`記述スタイル: ${data.style}`);
+    }
+    if (Array.isArray(data.output_format)) {
+      lines.push('出力形式:'); data.output_format.forEach(s=>lines.push(`- ${s}`));
+    } else if (data.output_format) {
+      lines.push(`出力形式: ${data.output_format}`);
+    }
+    if (data.eval_check) lines.push(`自己点検: ${String(data.eval_check)}`);
+    return lines.join('\n');
+  }
+
+  function buildFinalPrompt(md, wrap) {
+    const fm = parseFrontmatter(md);
+    if (!wrap) return md; // raw markdown as final prompt
+    const sys = buildSystemBlock(fm.data);
+    const body = fm.body.trim();
+    const sysBlock = sys.trim().length ? `\n<start_of_turn>system\n${sys}\n<end_of_turn>\n` : '';
+    return `${sysBlock}<start_of_turn>user\n${body}\n<end_of_turn>`;
+  }
+
+  // ------------------------------
+  // Tokenizer (js-tiktoken) with graceful fallback
+  // ------------------------------
+  let enc = null;
+  async function initTokenizer() {
+    try {
+      if (!window.tiktoken) throw new Error('tiktoken not loaded');
+      enc = await window.tiktoken.get_encoding('cl100k_base');
+      statusEl.textContent = 'Tokenizer: cl100k_base';
+      statusEl.style.color = '#9fe7c3';
+    } catch (e) {
+      console.warn('Tokenizer init failed, fallback in use', e);
+      enc = null;
+      statusEl.textContent = 'Tokenizer: 近似で計算';
+      statusEl.style.color = '#ffcc66';
+    }
+  }
+  initTokenizer();
+
+  function estimateTokens(text) {
+    try { if (enc) return enc.encode(text).length; } catch {}
+    // Fallback heuristic ≈ 4 chars/token (English) / 2 chars/token (CJK). Use mixed 3
+    const approx = Math.ceil(text.trim().length / 3);
+    return approx;
+  }
+
+  function updateAll() {
+    const md = cm.getValue();
+    renderPreview(md);
+    const wrap = document.getElementById('wrapToggle').checked;
+    const final = buildFinalPrompt(md, wrap);
+    finalEl.textContent = final;
+
+    const used = estimateTokens(final);
+    const limit = Math.max(512, Number(document.getElementById('limit').value || 8192));
+    const pct = Math.min(100, Math.round(used / limit * 100));
+    meterFill.style.width = pct + '%';
+    meterFill.style.background = pct >= 95 ? 'linear-gradient(90deg, var(--warn), var(--danger))' : 'linear-gradient(90deg, var(--accent), var(--brand))';
+    tokStat.textContent = `${used.toLocaleString()} tokens`;
+    pctStat.textContent = `${pct}%`;
+
+    // autosave
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ markdown: md, wrap, limit })); } catch {}
+  }
+
+  cm.on('change', debounce(updateAll, 150));
+  document.getElementById('wrapToggle').addEventListener('change', updateAll);
+  document.getElementById('limit').addEventListener('change', updateAll);
+
+  // Debounce helper
+  function debounce(fn, wait) {
+    let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), wait); };
+  }
+
+  // ------------------------------
+  // Templates
+  // ------------------------------
+  function getTemplate(name) {
+    if (name === 'code') return `---
+role: "あなたは一流のソフトウェアエンジニア兼セキュリティ実務家"
+goal: "安全で保守可能な実装と説明を提示する"
+constraints:
+  - 事実ベース。根拠が曖昧なときは明示
+  - 脆弱な書き方（XSS/SQLi/コマンド注入等）は避け、理由を解説
+  - ライセンス/依存の注意点に触れる
+style: ["番号見出し","簡潔なコードブロック","表による比較"]
+output_format: ["手順","コード","要点の箇条書き"]
+eval_check: "要件・非機能要件・セキュリティの観点で自己点検し、最後に合否と改善案を述べる"
+---
+# タスク
+- 目的: {ここに達成したいこと}
+- 前提: {環境/フレームワーク/制約}
+- 成功条件: {テスト/性能/保守性など}
+
+## 追加情報
+- 参照仕様や既存コードの注意点など
+`;
+    if (name === 'summary') return `---
+role: "あなたは厳密な要約・抽出の専門家"
+goal: "与えられた本文から指示どおりに情報を抽出する"
+constraints:
+  - 逸脱・推測・脚色をしない
+  - 数値・固有名詞は原文どおり
+style: ["箇条書き","短文","見出し付き"]
+output_format: ["要点3つ","引用部分は引用符で"]
+eval_check: "過不足・誤り・主観混入がないか自己点検し、不明は不明と記す"
+---
+# 入力テキスト
+(ここに本文)
+
+# 指示
+- 要点3つ
+- 固有名詞の一覧
+- 重要な数値
+`;
+    // default general
+    return `---
+role: "あなたは{分野}の専門家"
+goal: "誰に何をどの形式で届けるかを一文で"
+constraints:
+  - 事実ベース/出典明記
+  - トーン: 簡潔・実務志向
+inputs:
+  - 背景: {状況}
+  - 対象読者: {誰に}
+  - 参照資料: {URL等}
+style: ["番号付き見出し","表を活用"]
+output_format: ["見出し","手順","表"]
+eval_check: "要件を満たしているか最後に自己点検して報告"
+---
+# タスク
+1) 目的 / 2) 前提 / 3) 出力仕様…をMarkdownで記入
+`;
+  }
+
+  document.getElementById('applyTpl').addEventListener('click', () => {
+    const name = document.getElementById('tplSelect').value;
+    if (name === 'none') return;
+    const tpl = getTemplate(name);
+    const current = cm.getValue().trim();
+    if (current && !confirm('現在の内容をテンプレートで置き換えますか？')) return;
+    cm.setValue(tpl);
+    cm.focus();
+    cm.setCursor({line: cm.lineCount()-1, ch: 0});
+    updateAll();
+  });
+
+  // ------------------------------
+  // Export / Import / Copy
+  // ------------------------------
+  function download(filename, text, type='text/plain') {
+    const blob = new Blob([text], {type});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+
+  document.getElementById('exportMd').addEventListener('click', ()=>{
+    download(`prompt_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.md`, cm.getValue(), 'text/markdown');
+  });
+  document.getElementById('exportJson').addEventListener('click', ()=>{
+    const data = { markdown: cm.getValue(), wrap: document.getElementById('wrapToggle').checked, limit: Number(document.getElementById('limit').value) };
+    download(`prompt_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`, JSON.stringify(data, null, 2), 'application/json');
+  });
+  document.getElementById('copyFinal').addEventListener('click', async ()=>{
+    const text = finalEl.textContent;
+    try { await navigator.clipboard.writeText(text); flash('コピーしました'); }
+    catch (e) {
+      // fallback
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); flash('コピーしました');
+    }
+  });
+
+  function flash(msg) {
+    const pill = document.createElement('div');
+    pill.textContent = msg; pill.style.position='fixed'; pill.style.right='16px'; pill.style.bottom='16px'; pill.style.background='#1d2331'; pill.style.border='1px solid var(--border)'; pill.style.padding='10px 14px'; pill.style.borderRadius='12px'; pill.style.fontSize='12px'; pill.style.opacity='0.98';
+    document.body.appendChild(pill); setTimeout(()=>pill.remove(), 1200);
+  }
+
+  document.getElementById('importBtn').addEventListener('click', ()=> document.getElementById('importFile').click());
+  document.getElementById('importFile').addEventListener('change', (ev)=>{
+    const f = ev.target.files[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        if (f.name.endsWith('.json')) {
+          const obj = JSON.parse(reader.result);
+          if (obj.markdown) cm.setValue(obj.markdown);
+          if (typeof obj.wrap === 'boolean') document.getElementById('wrapToggle').checked = obj.wrap;
+          if (obj.limit) document.getElementById('limit').value = obj.limit;
+        } else { cm.setValue(String(reader.result)); }
+        updateAll();
+      } catch (e) { alert('読み込みに失敗しました: ' + e.message); }
+    };
+    reader.readAsText(f);
+    ev.target.value = '';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    if (!confirm('ローカル保存内容を削除し、初期テンプレートに戻します。よろしいですか？')) return;
+    localStorage.removeItem(LS_KEY);
+    cm.setValue(getTemplate('general'));
+    document.getElementById('wrapToggle').checked = false;
+    document.getElementById('limit').value = 8192;
+    updateAll();
+  });
+
+  // Keyboard shortcuts (save to local, export, copy)
+  document.addEventListener('keydown', (e)=>{
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault(); flash('ローカルに保存しました'); updateAll();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault(); document.getElementById('copyFinal').click();
+    }
+  });
+
+  // Initial render
+  updateAll();
+
+  // Cleanup tokenizer on unload
+  window.addEventListener('unload', ()=>{ try { if (enc) enc.free(); } catch {} });
+</script>
+</body>
+</html>
